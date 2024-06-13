@@ -1,0 +1,138 @@
+classdef RST_4DOF_finger_model < handle
+
+    properties
+        % Length of phalanges in meters
+        P_ph
+        M_ph
+        D_ph
+
+        % Rigid Body Tree model of the finger
+        fingerRobotModel
+        ikSolver
+
+        % Finger's configuration 
+        q
+
+        % Finger's EE last position
+        ee_pos
+    end
+    
+    methods
+        function obj = RST_4DOF_finger_model(p_ph_length, m_ph_length, d_ph_length, iks_max_iter)
+            % Constructor: Initialize the finger model using DH parameters
+            obj.P_ph = p_ph_length;
+            obj.M_ph = m_ph_length;
+            obj.D_ph = d_ph_length;
+            obj.createFingerModel();
+            obj.setupIKSolver(iks_max_iter);
+        end
+        
+        function createFingerModel(obj)
+            % DH parameters for the definition of the bodies/joints using RST
+            dhparams = [       0, pi/2, 0, 0;    % MCP_aa
+                        obj.P_ph,    0, 0, 0;    % MCP_fe
+                        obj.M_ph,    0, 0, 0;    % PIP
+                        obj.D_ph,    0, 0, 0;    % DIP
+                               0,    0, 0, 0];   % End Effector
+            
+            obj.fingerRobotModel = rigidBodyTree;
+            
+            % Create and configure each body and joint
+            body1 = rigidBody('body1');
+            jnt1 = rigidBodyJoint('MCP_aa', 'revolute');
+            jnt1.PositionLimits = [deg2rad(-60), deg2rad(60)]; % Limit MCP abduction/adduction
+            setFixedTransform(jnt1, dhparams(1, :), 'dh');
+            body1.Joint = jnt1;
+            
+            body2 = rigidBody('body2');
+            jnt2 = rigidBodyJoint('MCP_fe', 'revolute');
+            jnt2.PositionLimits = [deg2rad(-90), deg2rad(80)]; % Limit MCP flexion/extension
+            setFixedTransform(jnt2, dhparams(2, :), 'dh');
+            body2.Joint = jnt2;
+            
+            body3 = rigidBody('body3');
+            jnt3 = rigidBodyJoint('PIP', 'revolute');
+            jnt3.PositionLimits = [0, deg2rad(95)]; % Limit PIP flexion/extension
+            setFixedTransform(jnt3, dhparams(3, :), 'dh');
+            body3.Joint = jnt3;
+            
+            body4 = rigidBody('body4');
+            jnt4 = rigidBodyJoint('DIP', 'revolute');
+            jnt4.PositionLimits = [0, deg2rad(45)]; % Limit DIP flexion/extension
+            setFixedTransform(jnt4, dhparams(4, :), 'dh');
+            body4.Joint = jnt4;
+            
+            body5 = rigidBody('EE');
+            jnt5 = rigidBodyJoint('JEE', 'fixed');
+            setFixedTransform(jnt5, dhparams(5, :), 'dh');
+            body5.Joint = jnt5;
+            
+            % Add bodies to the model
+            addBody(obj.fingerRobotModel, body1, 'base');
+            addBody(obj.fingerRobotModel, body2, 'body1');
+            addBody(obj.fingerRobotModel, body3, 'body2');
+            addBody(obj.fingerRobotModel, body4, 'body3');
+            addBody(obj.fingerRobotModel, body5, 'body4');
+
+            obj.q = homeConfiguration(obj.fingerRobotModel);
+            obj.ee_pos = tform2trvec(getTransform(obj.fingerRobotModel, obj.q, "EE"));
+
+        end
+
+        function setupFKSolver(obj, iks_max_iter)
+            % Setup the Inverse Kinematics solver
+            obj.ikSolver = generalizedInverseKinematics('RigidBodyTree', obj.fingerRobotModel, 'SolverAlgorithm', 'Lev');
+            obj.ikSolver.SolverParameters.MaxIterations = iks_max_iter;
+            obj.ikSolver.ConstraintInputs = {"position"};
+        end
+        
+        function setupIKSolver(obj, iks_max_iter)
+            % Setup the Inverse Kinematics solver
+            obj.ikSolver = generalizedInverseKinematics('RigidBodyTree', obj.fingerRobotModel, 'SolverAlgorithm', 'Lev');
+            obj.ikSolver.SolverParameters.MaxIterations = iks_max_iter;
+            obj.ikSolver.ConstraintInputs = {"position"};
+        end
+        
+        function showModelDetails(obj)
+            % Display details of the finger robot model
+            showdetails(obj.fingerRobotModel);
+        end
+        
+        function ax = showModel(obj)
+            % Visualize the finger robot model
+            ax = show(obj.fingerRobotModel, obj.q, "Frames", "on");
+        end
+        
+        function interactivelyShowModel(obj)
+            % Interactively visualize the finger robot model
+            interactiveRigidBodyTree(obj.fingerRobotModel);
+        end
+        
+        function moveFingerToPosition(obj, position, show)
+            % Move the finger to a specified position
+            posTgt = constraintPositionTarget('EE');
+            posTgt.TargetPosition = position;
+            % q = homeConfiguration(obj.fingerRobotModel);
+            [obj.q, solutionInfo] = obj.ikSolver(obj.q, posTgt);
+            obj.ee_pos = tform2trvec(getTransform(obj.fingerRobotModel, obj.q, "EE"));
+
+            if show
+                obj.showModel();
+            end
+            
+        end
+
+        function finger_ee_pos = getFingerEEPosition(obj)
+            
+            finger_ee_pos = obj.ee_pos;
+
+        end
+
+        function finger_joints_angles = getFingerAngles(obj)
+            
+            finger_joints_angles = rad2deg(vertcat(obj.q.JointPosition));
+
+        end
+        
+    end
+end
